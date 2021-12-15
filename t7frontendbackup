@@ -1,0 +1,1276 @@
+using System;
+using System.IO;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Azure.WebJobs.Extensions.Http;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using System.Collections.Generic;
+using System.Net.Http;
+using IdentityServer4.Models;
+using Newtonsoft.Json.Linq;
+using System.Net.Http.Headers;
+using System.Net;
+using System.Data;
+using Nancy.Json;
+using System.Text.Json;
+
+namespace T07_JobSchedulerConnector
+{
+
+    internal class Token
+    {
+        [JsonProperty("access_token")]
+        public string AccessToken { get; set; }
+
+        [JsonProperty("token_type")]
+        public string TokenType { get; set; }
+
+        [JsonProperty("expires_in")]
+        public int ExpiresIn { get; set; }
+
+        [JsonProperty("refresh_token")]
+        public string RefreshToken { get; set; }
+    }
+
+    public class resources
+    {
+        public string id { get; set; }
+        public string title { get; set; }
+
+        public List<children> children { get; set; }
+    }
+    public class children
+    {
+        public string id { get; set; }
+        public string title { get; set; }
+    }
+
+    public class events
+    {
+        public string id { get; set; }
+        public string resourceId { get; set; }
+        public string start { get; set; }
+        public string end { get; set; }
+        public string title { get; set; }
+        public string color { get; set; }
+    }
+
+    public class UnAssignedJobs
+    {
+        public string ServiceOrderId { get; set; }
+        public string Worker { get; set; }
+        public string IsDummayWorker { get; set; }
+        public string Warehouse { get; set; }
+        public string CustomerAcoount { get; set; }
+        public string StageId { get; set; }
+        public string ItemDescription { get; set; }
+        public string CustomerName { get; set; }
+
+        public string OrderType { get; set; }
+
+
+    }
+
+
+    public class SearchJobs
+    {
+        public string ServiceOrderId { get; set; }
+        
+        public string Warehouse { get; set; }
+        public string StageId { get; set; }
+        public string ItemDescription { get; set; }
+        public string CustomerName { get; set; }
+
+        public string OrderType { get; set; }
+
+        public string CreatedDate { get; set; }
+
+
+    }
+
+
+    public class CustomerInfoGet
+    {
+        public string value { get; set; }
+        public string Email { get; set; }
+        public string Phone { get; set; }
+        public string CustId { get; set; }
+      
+    }
+    public class CreateJob
+    {
+        public string ExecutionStatus { get; set; }
+        public string JobOrderId { get; set; }
+        public string ErrorMsg { get; set; }
+
+    }
+
+
+    /// <summary>//Jpob detail information
+    public class JobDetails
+    {
+        public string _OrderTye { get; set; }
+        public string _ExistingJobOrder { get; set; }
+        public string _Starttime { get; set; }
+        public string _EndTime { get; set; }
+        public string _Email { get; set; }
+        public string _Phone { get; set; }
+        public string _Brand { get; set; }
+        public string _CustAccount { get; set; }
+        public string _Technician { get; set; }
+        public string _JobOrderId { get; set; }
+        public string _Notes { get; set; }
+        public string _Model { get; set; }
+
+   
+        public string _PrePaidAgreement { get; set; }
+    
+        public string _JobType { get; set; }
+        public string _EnableAlert { get; set; }
+        public string _ContactType { get; set; }
+
+        public string _SubTotal { get; set; }
+        public string _TotalGST { get; set; }
+        public string _TotalAmtPayable { get; set; }
+    }
+
+    public class JobDetailsChild
+    {
+        public string _ItemId { get; set; }
+
+        public string _ItemName { get; set; }
+        public string _UnitPrice { get; set; }
+        public string _Qty { get; set; }
+
+        public string _Discount { get; set; }
+        public string _LineTaxableAmt { get; set; }
+        public string _GST { get; set; }
+        public string _Net { get; set; }
+        public string _UniqueID { get; set; }
+
+
+    }
+        /// </summary>
+        public static class Function1
+    {
+
+        public static List<children> GetValue(DataTable dt2 = null, string selectExpression = "")
+        {
+            List<children> children = new List<children>();
+
+
+
+            foreach (DataRow k in dt2.Select(selectExpression))
+            {
+                string tempTechnicianval = (string)k["IsTechnician"];
+                if (tempTechnicianval == "Yes")
+                {
+                    children.Add(new children
+                    {
+                        id = (string)k["UserId"]
+                        ,
+                        title = (string)k["Name"]
+
+                    });
+                }
+            }
+            return children;
+        }
+
+
+        [FunctionName("Function1")]
+        public static async Task<IActionResult> Run(
+            [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
+            ILogger log)
+        {
+            DataTable resouceDatTable = new DataTable();
+            resouceDatTable.TableName = "ResourceTable";
+            resouceDatTable.Columns.Add("UserId", typeof(string));
+            resouceDatTable.Columns.Add("StoreName", typeof(string));
+            resouceDatTable.Columns.Add("Name", typeof(string));
+            resouceDatTable.Columns.Add("WareHouse", typeof(string));
+            resouceDatTable.Columns.Add("IsTechnician", typeof(string));
+
+
+
+            DataTable eventTableNew = new DataTable();
+            eventTableNew.TableName = "EventTable";
+            eventTableNew.Columns.Add("id", typeof(string));
+            eventTableNew.Columns.Add("resourceId", typeof(string));
+            eventTableNew.Columns.Add("start", typeof(string));
+            eventTableNew.Columns.Add("end", typeof(string));
+            eventTableNew.Columns.Add("title", typeof(string));
+            eventTableNew.Columns.Add("StoreName", typeof(string));
+            eventTableNew.Columns.Add("color", typeof(string));
+            eventTableNew.Columns.Add("jobdescription", typeof(string));
+            eventTableNew.Columns.Add("customername", typeof(string));
+
+
+
+            DataTable UnAssignedJobs = new DataTable();
+            UnAssignedJobs.TableName = "UnAssignedJobs";
+            UnAssignedJobs.Columns.Add("ServiceOrderId", typeof(string));
+            UnAssignedJobs.Columns.Add("Worker", typeof(string));
+            UnAssignedJobs.Columns.Add("IsDummayWorker", typeof(string));
+            UnAssignedJobs.Columns.Add("Warehouse", typeof(string));
+            UnAssignedJobs.Columns.Add("CustomerAcoount", typeof(string));
+            UnAssignedJobs.Columns.Add("StageId", typeof(string));
+
+            UnAssignedJobs.Columns.Add("ItemDescription", typeof(string));
+            UnAssignedJobs.Columns.Add("CustomerName", typeof(string));
+            UnAssignedJobs.Columns.Add("OrderType", typeof(string));
+
+
+            DataTable CustInfo = new DataTable();
+            CustInfo.TableName = "CustInfo";
+            CustInfo.Columns.Add("Name", typeof(string));
+            CustInfo.Columns.Add("Email", typeof(string));
+            CustInfo.Columns.Add("Phone", typeof(string));
+            CustInfo.Columns.Add("CustId", typeof(string));
+
+            DataTable JobDetails = new DataTable();
+            JobDetails.TableName = "JobDetails";
+            JobDetails.Columns.Add("JobType", typeof(string));
+            JobDetails.Columns.Add("ContactType", typeof(string));
+            JobDetails.Columns.Add("ExistingJobOrder", typeof(string));
+            JobDetails.Columns.Add("Starttime", typeof(string));
+            JobDetails.Columns.Add("Endtime", typeof(string));
+            JobDetails.Columns.Add("Email", typeof(string));
+            JobDetails.Columns.Add("Phone", typeof(string));
+            JobDetails.Columns.Add("Brand", typeof(string));
+            JobDetails.Columns.Add("CustAccount", typeof(string));
+            JobDetails.Columns.Add("Technician", typeof(string));
+            JobDetails.Columns.Add("JobOrderId", typeof(string));
+            JobDetails.Columns.Add("Notes", typeof(string));
+            JobDetails.Columns.Add("Model", typeof(string));
+            JobDetails.Columns.Add("ItemId", typeof(string));
+            JobDetails.Columns.Add("PrePaidAgreement", typeof(string));
+            JobDetails.Columns.Add("ItemDescription", typeof(string));
+            JobDetails.Columns.Add("OrderTypeBikeSnow", typeof(string));
+            JobDetails.Columns.Add("BrandOthers", typeof(string));
+            JobDetails.Columns.Add("SerialCode", typeof(string));
+
+            JobDetails.Columns.Add("EnableAlert", typeof(string));
+            JobDetails.Columns.Add("PrePaidAgreementItem", typeof(string));
+            JobDetails.Columns.Add("Qty", typeof(string));
+            JobDetails.Columns.Add("Discount", typeof(string));
+            JobDetails.Columns.Add("LineTaxableAmt", typeof(string));
+            JobDetails.Columns.Add("GST", typeof(string));
+            JobDetails.Columns.Add("Net", typeof(string));
+            JobDetails.Columns.Add("UnitPrice", typeof(string));
+
+
+            JobDetails.Columns.Add("ItemName", typeof(string));
+            JobDetails.Columns.Add("SubTotal", typeof(string));
+            JobDetails.Columns.Add("TotalGSt", typeof(string));
+            JobDetails.Columns.Add("TotalAMtPayable", typeof(string));
+            JobDetails.Columns.Add("uniQueId", typeof(string));
+
+
+
+            HttpWebRequest request;
+            System.IO.Stream reqStream;
+            System.IO.StreamWriter streamwriter;
+            string baseUrl = null ;
+            string baseUrlService = null;
+
+            string resourceUrl = null;
+            string userid = null;
+            string returnResult = null;
+            string operation = null;
+            string password = null;
+            string jobSearchOrderType = null;
+
+            ///New job create start
+            /*
+            string JobTypeJC = null;
+            string JobOrderJC = null;
+            string StartTimeJC = null;
+            string EndTimeJC = null;
+            string CustAccountJC = null;
+            string EmailJC = null;
+            string PhoneJC = null;
+            string BrandJC = null;
+            string ModelJC = null;
+            string TechnicianJC = null;
+            string ContactJC = null;
+            string NotesJC = null;
+            string ExistingJobOrderIDJC = null;
+            string UserIdJC = null;
+            */
+            string _OrderTye = null;
+            string _ExistingJobOrder = null;
+            string _Starttime = null;
+            string _EndTime = null;
+            string _Email = null;
+            string _Phone = null;
+            string _Brand = null;
+            string _CustAccount = null;
+            string _Technician = null;
+            string _JobOrderId = null;
+
+            string _Notes = null;
+
+            string _Model = null;
+            string _UserId = null;
+            string _BarCode = null;
+            string _ItemCode = null;
+            string _PrePaidAgreement = null;
+            string _Discount = null;
+            string _Qty = null;
+            string _uniqueLineId = null;
+            string _JobType = null;
+
+            string _EnableAlert = null;
+            string _ContactType = null;
+
+            ///New job create end
+
+
+            string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+            dynamic data = JsonConvert.DeserializeObject(requestBody);
+
+            operation = operation ?? data?.operation;
+            userid = userid ?? data?.userid;
+            password = password ?? data?.password;
+            jobSearchOrderType = jobSearchOrderType ?? data?.jobSearchOrderType;
+
+            _OrderTye = _OrderTye ?? data?._OrderTye;
+            _ExistingJobOrder = _ExistingJobOrder ?? data?._ExistingJobOrder;
+            _Starttime = _Starttime ?? data?._Starttime;
+            _EndTime = _EndTime ?? data?._EndTime;
+            _Email = _Email ?? data?._Email;
+            _Phone = _Phone ?? data?._Phone;
+            _Brand = _Brand ?? data?._Brand;
+            _CustAccount = _CustAccount ?? data?._CustAccount;
+            _Technician = _Technician ?? data?._Technician;
+            _JobOrderId = _JobOrderId ?? data?._JobOrderId;
+            _Notes = _Notes ?? data?._Notes;
+            _Model = _Model ?? data?._Model;
+            _UserId = userid;
+            _BarCode = _BarCode ?? data?._BarCode;
+
+            _ItemCode = _ItemCode ?? data?._ItemCode;
+            _PrePaidAgreement = _PrePaidAgreement ?? data?._PrePaidAgreement;
+            _Discount = _Discount ?? data?._Discount;
+            _Qty = _Qty ?? data?._Qty;
+            _uniqueLineId = _uniqueLineId ?? data?._uniqueLineId;
+            _JobType = _JobType ?? data?._JobType;
+            _EnableAlert = _EnableAlert ?? data?._EnableAlert;
+            _ContactType = _ContactType ?? data?._ContactType;
+
+
+            /*
+            log.LogInformation("C# HTTP trigger function processed a request.");
+
+            string name = req.Query["name"];
+
+            string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+            dynamic data = JsonConvert.DeserializeObject(requestBody);
+            name = name ?? data?.name;
+
+            string responseMessage = string.IsNullOrEmpty(name)
+                ? "This HTTP triggered function executed successfully. Pass a name in the query string or in the request body for a personalized response."
+                : $"Hello, {name}. This HTTP triggered function executed successfully.";
+
+            return new OkObjectResult(responseMessage);
+            */
+            string baseAddress = @"https://login.microsoftonline.com/TWGroup.onmicrosoft.com/oauth2/token";
+
+            string grant_type = "client_credentials";
+
+            string client_id = "663e66d5-41c5-417a-aa4f-377f2cbf827d";
+            string client_secret = "Q_wwnh~0_4qskimIyOy~~G29z3lKypcQLw";
+            string resource = "https://dev-dyn-rg-04fd90fe9725c4b4b3devaos.cloudax.dynamics.com";
+            baseUrlService = "https://dev-dyn-rg-04fd90fe9725c4b4b3devaos.cloudax.dynamics.com";
+            var form = new Dictionary<string, string>
+                {
+                    {"grant_type", grant_type},
+                    {"client_id", client_id},
+                    {"client_secret", client_secret},
+                {"resource" , resource }
+                };
+            string accessTokenNew;
+            using (HttpClient client = new HttpClient())
+            {
+                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+                HttpResponseMessage response = client.PostAsync(baseAddress, new FormUrlEncodedContent(form)).Result;
+                var token = response.Content.ReadAsStringAsync().Result;
+
+                Token tok = JsonConvert.DeserializeObject<Token>(token);
+                accessTokenNew = tok.AccessToken;
+            }
+            WebHeaderCollection httpheaders;
+            httpheaders = new System.Net.WebHeaderCollection();
+            httpheaders.Add("Authorization", "Bearer" + ' ' + accessTokenNew);
+            if (operation == "Login")
+            {
+                using (var client1 = new HttpClient())
+                {
+                    baseUrl = "https://dev-dyn-rg-04fd90fe9725c4b4b3devaos.cloudax.dynamics.com/data";
+                    /*
+                    client1.BaseAddress = new Uri("https://dev-dyn-rg-04fd90fe9725c4b4b3devaos.cloudax.dynamics.com/");
+                    client1.DefaultRequestHeaders.Accept.Clear();
+                    client1.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+                    // Add the Authorization header with the AccessToken.
+                    client1.DefaultRequestHeaders.Add("Authorization", "Bearer " + accessTokenNew);
+
+                    // create the URL string.
+                    //  string url = string.Format("v1/Articles?page={0}&tags={1}", page, HttpUtility.UrlEncode(tags));
+                    string url = string.Format("/data/CustomerGroups");
+                    // make the request
+                    HttpResponseMessage response = await client1.GetAsync(url);
+
+                    // parse the response and return the data.
+                    string jsonString = await response.Content.ReadAsStringAsync();
+                    object responseData = JsonConvert.DeserializeObject(jsonString);
+                    */
+
+                    string loginUrl = baseUrl + "/PowerAppsLogins";
+
+
+                    JObject loginJson = new JObject();
+                    loginJson.Add("UserId", userid);
+                    loginJson.Add("Password", password);
+
+
+
+                    request = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(loginUrl);
+                    request.Method = "POST";
+                    request.Headers = httpheaders;
+                    request.ContentType = "application/json";
+
+                    reqStream = request.GetRequestStream();
+                    streamwriter = new System.IO.StreamWriter(reqStream);
+                    streamwriter.Write(loginJson.ToString()); // Requested input parameters
+                    streamwriter.Flush();
+                    streamwriter.Close();
+                    streamwriter.Dispose();
+                    //response = (HttpWebResponse)request.GetResponse();
+                    using (HttpWebResponse empResponse1 = (HttpWebResponse)request.GetResponse())
+                    using (Stream stream = empResponse1.GetResponseStream())
+                    using (StreamReader reader = new StreamReader(stream))
+                    {
+
+                    }
+
+
+                    loginUrl = baseUrl + "/PowerAppsLogins?$filter=UserId eq" + " " + "\'" + userid + "\'" + " and Password eq " + "\'" + "TRUE" + "\'" + "&$top=1";
+
+                    // httpheaders.Add("Authorization", "Bearer" + ' ' + accessTokenNew);
+
+                    request = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(loginUrl);
+                    request.Method = "GET";
+                    request.Headers = httpheaders;
+                    request.ContentType = "application/json";
+
+                    using (HttpWebResponse empResponse1 = (HttpWebResponse)request.GetResponse())
+                    using (Stream stream = empResponse1.GetResponseStream())
+                    using (StreamReader reader = new StreamReader(stream))
+                    {
+                        string searchValueRange = reader.ReadToEnd();
+                        if (searchValueRange.Length > 207)
+                        {
+                            returnResult = "Success";
+                        }
+                        else
+                        {
+
+                            returnResult = "Failed";
+                        }
+                    }
+
+
+
+
+                    //Read Jarray
+                    //return (dynamic)responseData;
+                }
+            }
+
+
+            if (operation != "Login")
+            {
+                baseUrl = "https://dev-dyn-rg-04fd90fe9725c4b4b3devaos.cloudax.dynamics.com/data";
+
+                resourceUrl = baseUrl + "/StoreWiseResources";
+
+
+                try
+                {
+                    request = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(resourceUrl);
+                    request.Method = "GET";
+                    request.Headers = httpheaders;
+                    request.ContentType = "application/json";
+
+                    using (HttpWebResponse empResponse1 = (HttpWebResponse)request.GetResponse())
+                    using (Stream stream = empResponse1.GetResponseStream())
+                    using (StreamReader reader = new StreamReader(stream))
+                    {
+                        string searchValueRange = reader.ReadToEnd();
+                        if (searchValueRange.Length > 207)
+                        {
+                            searchValueRange = searchValueRange.Substring(1, searchValueRange.Length - 2);
+                            int index2 = searchValueRange.IndexOf("[");
+                            searchValueRange = searchValueRange.Substring(index2, searchValueRange.Length - index2);
+
+                            searchValueRange = searchValueRange.Substring(1, searchValueRange.Length - 2);
+                            searchValueRange = "[" + searchValueRange + "]";
+                            JArray a = JArray.Parse(searchValueRange);
+
+                            foreach (JObject o in a.Children<JObject>())
+                            {
+                                string DtUserId = "";
+                                string DtStoreName = "";
+                                string DtName = "";
+                                string DtWareHouse = "";
+                                string DtTechnician = "";
+
+                                foreach (JProperty p in o.Properties())
+                                {
+                                    string name = p.Name;
+
+                                    if (name == "UserId")
+                                    {
+                                        DtUserId = (string)p.Value;
+                                    }
+                                    if (name == "StoreName")
+                                    {
+                                        DtStoreName = (string)p.Value;
+                                    }
+                                    if (name == "Name")
+                                    {
+                                        DtName = (string)p.Value;
+                                    }
+                                    if (name == "WareHouse")
+                                    {
+                                        DtWareHouse = (string)p.Value;
+                                    }
+                                    if (name == "IsTechnician")
+                                    {
+                                        DtTechnician = (string)p.Value;
+                                    }
+
+                                }
+                                resouceDatTable.Rows.Add(DtUserId,
+                                                            DtStoreName,
+                                                            DtName,
+                                                            DtWareHouse,
+                                                            DtTechnician
+                                        );
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+
+
+                }
+            }
+            if (operation == "Resource")
+            {
+
+                
+
+
+                string findWareHouseExpression = "UserId = " + "\'" + userid + "\'";
+                string tempWareHouseName = "";
+                foreach (DataRow o in resouceDatTable.Select(findWareHouseExpression))
+                {
+                    tempWareHouseName = (string)o["StoreName"];
+                }
+                string createResourceJsonExpression = "StoreName = " + "\'" + tempWareHouseName + "\'";
+
+
+
+                resources resources = new resources
+                {
+                    id = tempWareHouseName,
+                    title = tempWareHouseName,
+                    children = Function1.GetValue(resouceDatTable, createResourceJsonExpression)
+
+                };
+
+                returnResult = new JavaScriptSerializer().Serialize(resources);
+
+
+                returnResult = "[" + returnResult + "]";
+
+
+            }
+
+
+                ///
+
+                if (operation == "EventMapping")
+                {
+                     baseUrl = "https://dev-dyn-rg-04fd90fe9725c4b4b3devaos.cloudax.dynamics.com/data";
+
+                    if (jobSearchOrderType != null)
+                    {
+                        if (jobSearchOrderType != "")
+                        {
+                            string[] searchString = jobSearchOrderType.Split(',');
+                            if (searchString.Length == 1)
+                            {
+                                resourceUrl = baseUrl + "/T07_EventScheduler2?$filter=OrderType eq " + "\'" + searchString[0] + "\'";
+                            }
+                            if (searchString.Length == 2)
+                            {
+                                resourceUrl = baseUrl + "/T07_EventScheduler2?$filter=OrderType eq " + "\'" + searchString[0] + "\'" + " or OrderType eq " + "\'" + searchString[1] + "\'";
+                            }
+                            if (searchString.Length >= 3)
+                            {
+                                resourceUrl = baseUrl + "/T07_EventScheduler2";
+                            }
+                        }
+                        else
+                        {
+                            resourceUrl = baseUrl + "/T07_EventScheduler2";
+                        }
+
+                }
+                    else
+                    {
+                        resourceUrl = baseUrl + "/T07_EventScheduler2";
+                    }
+                
+                     
+
+
+                    try
+                    {
+                        request = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(resourceUrl);
+                        request.Method = "GET";
+                        request.Headers = httpheaders;
+                        request.ContentType = "application/json";
+
+                        using (HttpWebResponse empResponse1 = (HttpWebResponse)request.GetResponse())
+                        using (Stream stream = empResponse1.GetResponseStream())
+                        using (StreamReader reader = new StreamReader(stream))
+                        {
+                            string searchValueRange = reader.ReadToEnd();
+                            if (searchValueRange.Length > 207)
+                            {
+                                searchValueRange = searchValueRange.Substring(1, searchValueRange.Length - 2);
+                                int index2 = searchValueRange.IndexOf("[");
+                                searchValueRange = searchValueRange.Substring(index2, searchValueRange.Length - index2);
+
+                                searchValueRange = searchValueRange.Substring(1, searchValueRange.Length - 2);
+                                searchValueRange = "[" + searchValueRange + "]";
+                                JArray a = JArray.Parse(searchValueRange);
+
+                                foreach (JObject o in a.Children<JObject>())
+                                {
+                                    string Dtid = "";
+                                    string Dtresourceid = "";
+                                    string Dtstart = "";
+                                    string Dtend = "";
+                                    string Dttitle = "";
+                                    string DtStoreName = "";
+                                    string DtColorName = "";
+                                    string JobDescription = "";
+                                    string CustomerName = "";
+
+                                    foreach (JProperty p in o.Properties())
+                                    {
+                                        string name = p.Name;
+
+                                        if (name == "id")
+                                        {
+                                            Dtid = (string)p.Value;
+                                        }
+                                        if (name == "resourceId")
+                                        {
+                                            Dtresourceid = (string)p.Value;
+                                        }
+                                        if (name == "StartDateVal")
+                                        {
+                                            Dtstart = p.ToString().Substring(17, 19);
+                                            // Dtstart = "2020-09-07T02:00:00";
+                                        }
+                                        if (name == "EnddateVal")
+                                        {
+                                            //Dtend = (string)p.Value;
+                                            Dtend = p.ToString().Substring(15, 19);
+                                        }
+                                        if (name == "Title")
+                                        {
+                                            Dttitle = (string)p.Value;
+                                        }
+                                        if (name == "Description")
+                                        {
+                                            DtStoreName = (string)p.Value;
+                                        }
+                                        if (name == "color")
+                                        {
+                                            DtColorName = (string)p.Value;
+                                        }
+                                        if (name == "JobDescription")
+                                        {
+                                            JobDescription = (string)p.Value;
+                                        }
+                                        if (name == "CustomerName")
+                                        {
+                                            CustomerName = (string)p.Value;
+                                        }
+                                    }
+                                    eventTableNew.Rows.Add(Dtid,
+                                                                Dtresourceid,
+                                                                Dtstart,
+                                                                Dtend,
+                                                                Dttitle,
+                                                                DtStoreName,
+                                                                DtColorName,
+                                                                JobDescription,
+                                                                CustomerName
+
+                                            );
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+
+
+                    }
+
+
+                  string    findWareHouseExpression = "UserId = " + "\'" + userid + "\'";
+                  string  tempWareHouseName = "";
+                    foreach (DataRow o in resouceDatTable.Select(findWareHouseExpression))
+                    {
+                        tempWareHouseName = (string)o["StoreName"];
+                    }
+
+                   // tempWareHouseName = "Dunedin";
+                    string createResourceJsonExpression = "StoreName = " + "\'" + tempWareHouseName + "\'";
+
+                    ////
+                    List<events> events = new List<events>();
+
+                    foreach (DataRow k in eventTableNew.Select(createResourceJsonExpression))
+                    {
+
+                        events.Add(new events
+                        {
+                            id = (string)k["id"]
+                            ,
+                            resourceId = (string)k["resourceId"]
+                            ,
+                            start = (string)k["start"]
+                            ,
+                            end = (string)k["end"]
+                            ,
+                            title = (string)k["title"] +"" + (string)k["JobDescription"] ,
+                            color = (string)k["color"]
+                        });
+                    }
+                    ////
+                    returnResult = new JavaScriptSerializer().Serialize(events);
+
+
+                    //returnResult = "[" + returnResult + "]";
+
+
+                }
+            ///
+
+
+            if (operation == "SearchJobs")
+            {
+                ////Start
+                baseUrl = "https://dev-dyn-rg-04fd90fe9725c4b4b3devaos.cloudax.dynamics.com/data";
+                resourceUrl = baseUrl + "/JobInformations";
+                List<SearchJobs> searchJobs = new List<SearchJobs>();
+
+                try
+                {
+                    request = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(resourceUrl);
+                    request.Method = "GET";
+                    request.Headers = httpheaders;
+                    request.ContentType = "application/json";
+
+                    using (HttpWebResponse empResponse1 = (HttpWebResponse)request.GetResponse())
+                    using (Stream stream = empResponse1.GetResponseStream())
+                    using (StreamReader reader = new StreamReader(stream))
+                    {
+                        string searchValueRange = reader.ReadToEnd();
+                        if (searchValueRange.Length > 207)
+                        {
+                            searchValueRange = searchValueRange.Substring(1, searchValueRange.Length - 2);
+                            int index2 = searchValueRange.IndexOf("[");
+                            searchValueRange = searchValueRange.Substring(index2, searchValueRange.Length - index2);
+
+                            searchValueRange = searchValueRange.Substring(1, searchValueRange.Length - 2);
+                            searchValueRange = "[" + searchValueRange + "]";
+                            JArray a = JArray.Parse(searchValueRange);
+                           
+
+                            foreach (JObject o in a.Children<JObject>())
+                            {
+                                string ServiceOrderId = "";
+                                string Warehouse = "";
+                                string StageId = "";
+                                string ItemDescription = "";
+                                string CustomerName = "";
+                                string OrderType = "";
+                                string CreatedDate = "";
+
+
+
+
+                                foreach (JProperty p in o.Properties())
+                                {
+                                    string name = p.Name;
+
+                                    if (name == "ServiceOrderId")
+                                    {
+                                        ServiceOrderId = (string)p.Value;
+                                    }
+
+                                    if (name == "Warehouse")
+                                    {
+                                        //Dtend = (string)p.Value;
+                                        Warehouse = (string)p.Value;
+                                    }
+                                    if (name == "StageId")
+                                    {
+                                        StageId = (string)p.Value;
+                                    }
+                                    if (name == "ItemDescription")
+                                    {
+                                        ItemDescription = (string)p.Value;
+                                    }
+
+                                    if (name == "CustomerName")
+                                    {
+                                        CustomerName = (string)p.Value;
+                                    }
+                                    if (name == "OrderType")
+                                    {
+                                        OrderType = (string)p.Value;
+                                    }
+                                    if (name == "CreatedDate")
+                                    {
+                                        CreatedDate = (string)p.Value;
+                                    }
+                                }
+
+                                searchJobs.Add(new SearchJobs
+                                {
+                                    ServiceOrderId = ServiceOrderId
+                       ,
+                                    Warehouse = Warehouse
+                       ,
+                                    StageId = StageId
+                       ,
+                                    ItemDescription = ItemDescription
+                       ,
+                                    CustomerName = CustomerName,
+                                    OrderType = OrderType,
+
+                                    CreatedDate = CreatedDate
+
+
+                                });
+
+                            }
+                        }
+                    }
+                }
+                catch(Exception ex)
+                {
+
+                }
+
+
+                returnResult = new JavaScriptSerializer().Serialize(searchJobs);
+                ///End
+
+
+
+            }
+            if (operation == "UnassignedJobs")
+            {
+                // JobInformations
+                 baseUrl = "https://dev-dyn-rg-04fd90fe9725c4b4b3devaos.cloudax.dynamics.com/data";
+                 string val1 = "Yes", val2 = "Raised";
+                 resourceUrl = baseUrl + "/JobInformations?$filter = IsDummayWorker eq " + "\'" + val1 + "\'" + " and StageId eq " + "\'" + val2 + "\'"+ "&$orderby=ServiceOrderId desc";
+              
+
+                try
+                {
+                    request = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(resourceUrl);
+                    request.Method = "GET";
+                    request.Headers = httpheaders;
+                    request.ContentType = "application/json";
+
+                    using (HttpWebResponse empResponse1 = (HttpWebResponse)request.GetResponse())
+                    using (Stream stream = empResponse1.GetResponseStream())
+                    using (StreamReader reader = new StreamReader(stream))
+                    {
+                        string searchValueRange = reader.ReadToEnd();
+                        if (searchValueRange.Length > 207)
+                        {
+                            searchValueRange = searchValueRange.Substring(1, searchValueRange.Length - 2);
+                            int index2 = searchValueRange.IndexOf("[");
+                            searchValueRange = searchValueRange.Substring(index2, searchValueRange.Length - index2);
+
+                            searchValueRange = searchValueRange.Substring(1, searchValueRange.Length - 2);
+                            searchValueRange = "[" + searchValueRange + "]";
+                            JArray a = JArray.Parse(searchValueRange);
+
+                            foreach (JObject o in a.Children<JObject>())
+                            {
+                                string ServiceOrderId = "";
+                                string Worker = "";
+                                string IsDummayWorker = "";
+                                string Warehouse = "";
+                                string CustomerAcoount = "";
+                                string StageId = "";
+                                string ItemDescription = "";
+                                string CustomerName = "";
+                                string OrderType = "";
+
+                                
+
+
+                                foreach (JProperty p in o.Properties())
+                                {
+                                    string name = p.Name;
+
+                                    if (name == "ServiceOrderId")
+                                    {
+                                        ServiceOrderId = (string)p.Value;
+                                    }
+                                    if (name == "Worker")
+                                    {
+                                        Worker = (string)p.Value;
+                                    }
+                                    if (name == "IsDummayWorker")
+                                    {
+                                        IsDummayWorker = (string)p.Value;
+                                        // Dtstart = "2020-09-07T02:00:00";
+                                    }
+                                    if (name == "Warehouse")
+                                    {
+                                        //Dtend = (string)p.Value;
+                                        Warehouse = (string)p.Value;
+                                    }
+                                    if (name == "CustomerAcoount")
+                                    {
+                                        CustomerAcoount = (string)p.Value;
+                                    }
+                                    if (name == "StageId")
+                                    {
+                                        StageId = (string)p.Value;
+                                    }
+                                    if (name == "ItemDescription")
+                                    {
+                                        ItemDescription = (string)p.Value;
+                                    }
+                                    if (name == "CustomerName")
+                                    {
+                                        CustomerName = (string)p.Value;
+                                    }
+                                    if (name == "OrderType")
+                                    {
+                                        OrderType = (string)p.Value;
+                                    }
+                                }
+                                if ((IsDummayWorker == "Yes") && (StageId == "Raised"))
+                                {
+                                    UnAssignedJobs.Rows.Add(ServiceOrderId,
+                                                                Worker,
+                                                                IsDummayWorker,
+                                                                Warehouse,
+                                                                CustomerAcoount,
+                                                                StageId,
+                                                                ItemDescription,
+                                                                CustomerName,
+                                                                OrderType
+
+                                            );
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+
+
+                }
+
+
+                string findWareHouseExpression = "UserId = " + "\'" + userid + "\'";
+                string tempWareHouseName = "";
+                foreach (DataRow o in resouceDatTable.Select(findWareHouseExpression))
+                {
+                    tempWareHouseName = (string)o["WareHouse"];
+                }
+
+                // tempWareHouseName = "Dunedin";
+                string createResourceJsonExpression = "Warehouse = " + "\'" + tempWareHouseName + "\'";
+
+                ////
+                List<UnAssignedJobs> unAssignedJobs = new List<UnAssignedJobs>();
+
+                foreach (DataRow k in UnAssignedJobs.Select(createResourceJsonExpression))
+                {
+
+                    unAssignedJobs.Add(new UnAssignedJobs
+                    {
+                        ServiceOrderId = (string)k["ServiceOrderId"]
+                        ,
+                        Worker = (string)k["Worker"]
+                        ,
+                        IsDummayWorker = (string)k["IsDummayWorker"]
+                        ,
+                        Warehouse = (string)k["Warehouse"]
+                        ,
+                        CustomerAcoount = (string)k["CustomerAcoount"],
+                        StageId = (string)k["StageId"],
+
+                        ItemDescription = (string)k["ItemDescription"],
+                        CustomerName = (string)k["CustomerName"],
+                        OrderType = (string)k["OrderType"],
+
+                    });
+                }
+                ////
+                returnResult = new JavaScriptSerializer().Serialize(unAssignedJobs);
+
+
+                //returnResult = "[" + returnResult + "]";
+
+
+
+            }// end
+
+
+
+
+            if (operation == "CustList")
+            {
+                baseUrl = "https://dev-dyn-rg-04fd90fe9725c4b4b3devaos.cloudax.dynamics.com/data";
+              
+                resourceUrl = baseUrl + "/T07_PowerAppsCustInfo";
+
+
+                try
+                {
+                    request = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(resourceUrl);
+                    request.Method = "GET";
+                    request.Headers = httpheaders;
+                    request.ContentType = "application/json";
+
+                    using (HttpWebResponse empResponse1 = (HttpWebResponse)request.GetResponse())
+                    using (Stream stream = empResponse1.GetResponseStream())
+                    using (StreamReader reader = new StreamReader(stream))
+                    {
+                        string searchValueRange = reader.ReadToEnd();
+                        if (searchValueRange.Length > 207)
+                        {
+                            searchValueRange = searchValueRange.Substring(1, searchValueRange.Length - 2);
+                            int index2 = searchValueRange.IndexOf("[");
+                            searchValueRange = searchValueRange.Substring(index2, searchValueRange.Length - index2);
+
+                            searchValueRange = searchValueRange.Substring(1, searchValueRange.Length - 2);
+                            searchValueRange = "[" + searchValueRange + "]";
+                            JArray a = JArray.Parse(searchValueRange);
+
+                            foreach (JObject o in a.Children<JObject>())
+                            {
+                                string Name = "";
+                                string Email = "";
+                                string Phone = "";
+                                string CustId = "";
+                              
+
+                                foreach (JProperty p in o.Properties())
+                                {
+                                    string name = p.Name;
+
+                                    if (name == "NameAlias")
+                                    {
+                                        Name = (string)p.Value;
+                                    }
+                                    if (name == "PrimaryContactEmail")
+                                    {
+                                        Email = (string)p.Value;
+                                    }
+                                    if (name == "PrimaryContactPhone")
+                                    {
+                                        Phone = (string)p.Value;
+                                        // Dtstart = "2020-09-07T02:00:00";
+                                    }
+                                    if (name == "CustomerAccount")
+                                    {
+                                        //Dtend = (string)p.Value;
+                                        CustId = (string)p.Value;
+                                    }
+                                    
+                                }
+
+                                CustInfo.Rows.Add(Name,
+                                                Email,
+                                                Phone,
+                                                CustId
+
+                                            );
+                                
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+
+
+                }
+
+                List<CustomerInfoGet> customerInfoGets = new List<CustomerInfoGet>();
+
+                foreach (DataRow k in CustInfo.Rows)
+                {
+
+                    customerInfoGets.Add(new CustomerInfoGet
+                    {
+                        value = (string)k["Name"]
+                        ,
+                        Email = (string)k["Email"]
+                        ,
+                        Phone = (string)k["Phone"]
+                        ,
+                        CustId = (string)k["CustId"]
+                       
+                    });
+                }
+                ////
+                returnResult = new JavaScriptSerializer().Serialize(customerInfoGets);
+
+
+                //returnResult = "[" + returnResult + "]";
+
+
+
+            }
+
+            /// New job creation start
+            if (operation == "NewJobCreation")
+            {
+                string newjobcreateurl = baseUrlService + "/api/services/T07_CreateJobServiceGrp/T07_WorkShopJobCreationUpdateService/createUpdateJobs";
+
+
+                JObject newjobcreatejson = new JObject();
+                newjobcreatejson.Add("_JobType", _OrderTye);
+                newjobcreatejson.Add("_ExistingJobOrder", _ExistingJobOrder);
+                newjobcreatejson.Add("_Starttime", _Starttime);
+                newjobcreatejson.Add("_EndTime", _EndTime);
+                newjobcreatejson.Add("_Email", _Email);
+                newjobcreatejson.Add("_Phone", _Phone);
+                newjobcreatejson.Add("_Brand", _Brand);
+                newjobcreatejson.Add("_CustAccount", _CustAccount);
+                newjobcreatejson.Add("_Technician", _Technician);
+                newjobcreatejson.Add("_JobOrderId", _JobOrderId);
+                newjobcreatejson.Add("_Notes", _Notes);
+                newjobcreatejson.Add("_Model", _Model);
+
+                newjobcreatejson.Add("_UserId", _UserId);
+                newjobcreatejson.Add("_BarCode", _BarCode);
+                newjobcreatejson.Add("_ItemCode", _ItemCode);
+                newjobcreatejson.Add("_PrePaidAgreement", _PrePaidAgreement);
+                newjobcreatejson.Add("_Discount", _Discount);
+
+                newjobcreatejson.Add("_Qty", _Qty);
+                newjobcreatejson.Add("_uniqueLineId", _uniqueLineId);
+                newjobcreatejson.Add("_OrderTypeBikeSnow", _JobType);
+                newjobcreatejson.Add("_EnableAlert", _EnableAlert);
+                newjobcreatejson.Add("_ContactType", _ContactType);
+
+
+
+
+
+                request = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(newjobcreateurl);
+                request.Method = "POST";
+                request.Headers = httpheaders;
+                request.ContentType = "application/json";
+
+                reqStream = request.GetRequestStream();
+                streamwriter = new System.IO.StreamWriter(reqStream);
+                streamwriter.Write(newjobcreatejson.ToString()); // Requested input parameters
+                streamwriter.Flush();
+                streamwriter.Close();
+                streamwriter.Dispose();
+                //response = (HttpWebResponse)request.GetResponse();
+                using (HttpWebResponse empResponse1 = (HttpWebResponse)request.GetResponse())
+                using (Stream stream = empResponse1.GetResponseStream())
+                using (StreamReader reader = new StreamReader(stream))
+                {
+                    string searchValueRange = reader.ReadToEnd();
+                    if (searchValueRange.Length > 40)
+                    {
+                        searchValueRange = searchValueRange.Substring(1, searchValueRange.Length - 2);
+
+
+                        using JsonDocument doc = JsonDocument.Parse(searchValueRange);
+                        JsonElement root = doc.RootElement;
+
+                        Console.WriteLine(root);
+
+                        var u1 = root;
+
+
+
+
+
+                        string ExecutionStatus = "";
+                        string JobOrderId = "";
+                        string ErrorMsg = "";
+
+
+                        ExecutionStatus = u1.GetProperty("ExecutionStatus").ToString();
+                        JobOrderId = u1.GetProperty("JobOrderId").ToString();
+                        ErrorMsg = u1.GetProperty("ErrorMsg").ToString();
+
+
+                        CreateJob createJob = new CreateJob
+
+                        {
+
+                            ExecutionStatus = ExecutionStatus
+                        ,
+                            JobOrderId = JobOrderId
+                        ,
+                            ErrorMsg = ErrorMsg
+
+
+
+                        };
+
+                        ////
+                        returnResult = new JavaScriptSerializer().Serialize(createJob);
+
+
+
+
+                    }
+                    
+                }
+            }
+            // New job creation end
+            return new OkObjectResult(returnResult); ;
+            }
+        }
+    
+}
